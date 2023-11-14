@@ -1,18 +1,23 @@
 import yfinance as yf
 import pandas as pd
 
-# Define a list of ETF tickers
-etf_tickers = ["ESGU", "EAGG", "ESGE", "ESML", "SUSB", "ESGD", "SHY", "SUSA", "GOVT", "MBB", "SUSC"]
+# Tickers of assets
+assets = ["ESGU", "EAGG", "ESGE", "ESML", "SUSB", "ESGD", "SHY", "SUSA", "GOVT", "MBB", "SUSC"]
+assets.sort()
 
-# Create an empty DataFrame to store the start dates
-df_start_dates = pd.DataFrame(index=["Start Date"])
+# Downloading etf_prices for the maximum available period
+etf_prices = yf.download(assets)
+etf_prices = etf_prices.loc[:,('Adj Close', slice(None))]
+etf_prices.columns = assets
 
-# Loop through each ETF ticker and retrieve the start date
-for ticker in etf_tickers:
-    etf = yf.Ticker(ticker)
-    historical_data = etf.history(period="max")  # Retrieve all available historical data
-    start_date = historical_data.index.min()
-    df_start_dates[ticker] = [start_date]
+# Find the latest start date among all ETFs
+latest_start_date = max(etf_prices.index.get_level_values(0).min() for asset in assets)
 
-# Display the DataFrame with start dates
-print(df_start_dates)
+# Filter etf_prices to start from the latest available start date
+etf_prices = etf_prices[etf_prices.index.get_level_values(0) >= latest_start_date]
+
+# Forward fill missing values
+etf_prices = etf_prices.ffill()
+
+# Drop remaining rows with NaN values
+etf_prices = etf_prices.dropna()
