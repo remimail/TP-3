@@ -21,3 +21,6 @@ etf_prices = etf_prices.ffill()
 
 # Drop remaining rows with NaN values
 etf_prices = etf_prices.dropna()
+
+# Calculating returns
+rets = etf_prices[assets].pct_change().dropna()
