@@ -62,11 +62,11 @@ def import_csv_with_date_index(csv_path):
     df = pd.read_csv(csv_path)
 
     # Assuming the first column is the date column
-    df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0], errors='coerce')  # Convert the first column to datetime
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')  # Convert the first column to datetime
 
     # Set the first column as the index
-    df.set_index(df.columns[0], inplace=True)
-
+    df.set_index(df["Date"], inplace=True)
+    df.index.to_period('M')
     return df
 
 
