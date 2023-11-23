@@ -12,15 +12,19 @@ yf.pdr_override()
 import pandas as pd
 from sklearn.impute import KNNImputer
 import matplotlib.pyplot as plt
-from scipy.stats import skew, kurtosis
 import seaborn as sns
-from sklearn.preprocessing import MinMaxScaler
 import datetime
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_absolute_error
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeRegressor
+from scipy.stats import skew, kurtosis
+import seaborn as sns
+import warnings
+
+# Ignore all warnings
+warnings.filterwarnings("ignore")
 
 '''
 iShares ESG Aware MSCI USA ETF - ESGU
@@ -81,77 +85,95 @@ def import_csv_with_date_index(csv_path):
 
     return df
 
-def TE_fct(df_1, df_2): 
-    common_index = df_1.index.intersection(df_2.index)
-    common_index = common_index[
-        common_index.isin(df_1.index) &
-        common_index.isin(df_2.index) &
-        (pd.notna(df_1.loc[common_index]).any(axis=1)) &
-        (df_2.loc[common_index] != 0).any(axis=1)
-    ]
-    
-    # Select data for common non-zero and non-NaN rows
-    df1_common = df_1.loc[common_index]
-    df2_common = df_2.loc[common_index]
-    
-    # Initialize an empty DataFrame to store tracking errors
-    diff_df = pd.DataFrame(index=common_index, columns=df_1.columns)
-    TE_list = pd.Series(index=ticker_list)
-    
-    # Iterate over each column in the DataFrames
-    for column in diff_df.columns:
-        # Identify non-zero and non-NaN values for the current column
-        valid_indices = (df1_common[column] != 0) & pd.notna(df1_common[column]) & \
-                        (df2_common[column] != 0) & pd.notna(df2_common[column])
-        for rows in valid_indices.index:
-        
-        # Compute tracking error for the current column only for valid indices
-            diff = (df1_common.loc[rows, column] - df2_common.loc[rows, column])
-            # Fill in the tracking_errors_df DataFrame
-            diff_df.loc[rows, column] = diff
-            
-        TE_list[column] = np.std(diff_df[column]) 
-    
-        #Printing the TE for each ETF
-    
-        # Display the tracking_errors_df DataFrame
-        print(f'{column} Tracking Error: {TE_list[column]}')
-        print('', sep='\n')
-    
-    # Convert non-numeric values to NaN
-    tracking_errors_df_numeric = diff_df.apply(pd.to_numeric, errors='coerce')
-    
-    # Plots of the time series difference between ETF and Benchmark index
-    
-    
-    num_rows = 4
+def TE_fct(df_1, df_2):
+    # Calculate tracking errors
+    tracking_errors = df_1 - df_2
+
+    # Convert 'Period' values to strings
+    tracking_errors.index = tracking_errors.index.strftime('%Y-%m')
+
+    # Extract years for the x-axis labels
+    years = tracking_errors.index.str[:4]
+
+    # Create a grid of subplots
+    num_plots = len(tracking_errors.columns)
     num_cols = 3
+    num_rows = (num_plots - 1) // num_cols + 1
+
     fig, axes = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=(15, 10), sharex=True)
-    
+
     # Flatten the 2D array of subplots for easier indexing
     axes = axes.flatten()
-    
-    for i, ticker in enumerate(tracking_errors_df_numeric.columns):
-        # Convert Period index to datetime
-        x_values = tracking_errors_df_numeric.index.to_timestamp()
-    
-        # Plot the actual and predicted time series
-        axes[i].plot(x_values, tracking_errors_df_numeric[ticker], label=f'Tracking error of index {ticker}', color='blue')
+
+    for i, ticker in enumerate(tracking_errors.columns):
+        # Plot tracking error for each index
+        axes[i].plot(tracking_errors.index, tracking_errors[ticker], label=f'Tracking error of index {ticker}', color='blue')
         axes[i].set_title(f'Tracking Error for {ticker}')
         axes[i].set_xlabel('Date')
         axes[i].set_ylabel('Tracking Error')
-        axes[i].axhline(y=0, color='red', linestyle='--', label='Zero Line')
-    
-    
+        axes[i].axhline(y=0, color='red', linestyle='--', linewidth=1.5)  # Add a red dotted line at y=0
+
+
+        # Set x-axis ticks and labels for every second year
+        axes[i].set_xticks(tracking_errors.index[::24])  # Set x-axis ticks every 24 months (every second year)
+        axes[i].set_xticklabels(years[::24], rotation=45)  # Set x-axis labels with every second year, rotated for better visibility
+
+    # Hide empty subplots if the number of subplots is less than the total number of subplots in the grid
+    for j in range(i + 1, len(axes)):
+        axes[j].axis('off')
+
     # Adjust layout
     plt.tight_layout()
-    fig.suptitle('ETF and benchmark Tracking error', fontsize=16).set_y(1.05)
+    fig.suptitle('Tracking Errors Comparison', fontsize=16).set_y(1.01)
+
+    # Adjust the layout to prevent clipping of labels
+    plt.gcf().autofmt_xdate()
+    plt.xticks(rotation=45, ha='right')
+    plt.show()
+
+
+def plot_time_series_grid(dataframe, title='Benchmark Indexes Time Series', y_axis_label='Return', 
+                          num_cols=3, figsize=(15, 10), rotation=45, fontsize=10):
+    # Convert 'Period' values to numeric
+    dataframe.index = dataframe.index.to_timestamp()
+
+    # Determine the number of rows and columns for the subplots
+    num_plots = len(dataframe.columns)
+
+    # Determine the number of rows and columns for the subplots
+    num_cols = 3
+    num_rows = (num_plots - 1) // num_cols + 1
+
+    # Create subplots
+    fig, axes = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=figsize, sharex=True)
+
+    # Flatten the 2D array of subplots for easier indexing
+    axes = axes.flatten()
+
+    # Iterate over each column in the DataFrame and each subplot
+    for i, (column, ax) in enumerate(zip(dataframe.columns, axes)):
+        # Plot each column on a separate subplot
+        ax.plot(dataframe.index, dataframe[column], label=column)
+        ax.set_title(column)
+        ax.set_xlabel('Date')  # Set x-axis label on each subplot
+        ax.set_ylabel(y_axis_label)  # Set y-axis label on each subplot
+
+    # Hide empty subplots if the number of subplots is less than the total number of subplots in the grid
+    for j in range(i + 1, len(axes)):
+        axes[j].axis('off')
+
+    # Adjust layout
+    plt.tight_layout()
+    fig.suptitle(title, fontsize=16).set_y(1.01)
+
     plt.show()
 
 
 # Code -------------------------------------------------------------------------------------
 
 etf_monthly_rets = getData(ticker_list)
+etf_monthly_rets.replace(0, np.nan, inplace=True)
+
 
 df_index = pd.DataFrame()
 
@@ -240,77 +262,22 @@ fig.suptitle('ETF and benchmark Tracking error', fontsize=16).set_y(1.05)
 plt.show()
 
 '''
-def TE_fct(df_1, df_2): 
-    common_index = df_1.index.intersection(df_2.index)
-    common_index = common_index[
-        common_index.isin(df_1.index) &
-        common_index.isin(df_2.index) &
-        (pd.notna(df_1.loc[common_index]).any(axis=1)) &
-        (df_2.loc[common_index] != 0).any(axis=1)
-    ]
-    
-    # Select data for common non-zero and non-NaN rows
-    df1_common = df_1.loc[common_index]
-    df2_common = df_2.loc[common_index]
-    
-    # Initialize an empty DataFrame to store tracking errors
-    diff_df = pd.DataFrame(index=common_index, columns=df_1.columns)
-    TE_list = pd.Series(index=ticker_list)
-    
-    # Iterate over each column in the DataFrames
-    for column in diff_df.columns:
-        # Identify non-zero and non-NaN values for the current column
-        valid_indices = (df1_common[column] != 0) & pd.notna(df1_common[column]) & \
-                        (df2_common[column] != 0) & pd.notna(df2_common[column])
-        for rows in valid_indices.index:
-        
-        # Compute tracking error for the current column only for valid indices
-            diff = (df1_common.loc[rows, column] - df2_common.loc[rows, column])
-            # Fill in the tracking_errors_df DataFrame
-            diff_df.loc[rows, column] = diff
-            
-        TE_list[column] = np.std(diff_df[column]) 
-    
-        #Printing the TE for each ETF
-    
-        # Display the tracking_errors_df DataFrame
-        print(f'{column} Tracking Error: {TE_list[column]}')
-    print('', sep='\n')
 
-    
-    # Convert non-numeric values to NaN
-    tracking_errors_df_numeric = diff_df.apply(pd.to_numeric, errors='coerce')
-    
-    # Plots of the time series difference between ETF and Benchmark index
-    
-    
-    num_rows = 4
-    num_cols = 3
-    fig, axes = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=(15, 10), sharex=True)
-    
-    # Flatten the 2D array of subplots for easier indexing
-    axes = axes.flatten()
-    
-    for i, ticker in enumerate(tracking_errors_df_numeric.columns):
-        # Convert Period index to datetime
-        x_values = tracking_errors_df_numeric.index.to_timestamp()
-    
-        # Plot the actual and predicted time series
-        axes[i].plot(x_values, tracking_errors_df_numeric[ticker], label=f'Tracking error of index {ticker}', color='blue')
-        axes[i].set_title(f'Tracking Error for {ticker}')
-        axes[i].set_xlabel('Date')
-        axes[i].set_ylabel('Tracking Error')
-        axes[i].axhline(y=0, color='red', linestyle='--', label='Zero Line')
-    
-    
-    # Adjust layout
-    plt.tight_layout()
-    fig.suptitle('ETF and benchmark Tracking error', fontsize=16).set_y(1.05)
-    plt.show()
-    return
 
+
+
+
+
+'''
 
 TE_fct(df_index_rets, etf_monthly_rets)
+
+'''
+
+
+
+
+
 
 '''
 knn = [5,10,25,50]
@@ -322,14 +289,16 @@ for k in knn:
 '''
 
 # Create a KNNImputer instance
-imputer = KNNImputer(n_neighbors=50)  # You can adjust the number of neighbors as needed
+imputer = KNNImputer(n_neighbors=5)  # You can adjust the number of neighbors as needed
 # Fit the imputer on the data and transform the DataFrame
 df_imputed_index = pd.DataFrame(imputer.fit_transform(df_index_rets), columns=df_index_rets.columns, index=df_index_rets.index)
 df_imputed_etf = pd.DataFrame(imputer.fit_transform(etf_monthly_rets), columns=etf_monthly_rets.columns, index=etf_monthly_rets.index)
 
 
-TE_fct(df_imputed_index, df_imputed_etf)
 
+'''
+TE_fct(df_imputed_index, df_imputed_etf)
+'''
 
 #----------------------------------------- Analysis of the etfs benchmark indexes monthly returns -------------------------------------------------------
 
@@ -441,7 +410,7 @@ df_features = pd.merge(df_features_from_fred, df_imported_feat,  left_index=True
 
 # Filling the missing values 
 # Create a KNNImputer instance
-imputer = KNNImputer(n_neighbors=50)  # You can adjust the number of neighbors as needed
+imputer = KNNImputer(n_neighbors=5)  # You can adjust the number of neighbors as needed
 # Fit the imputer on the data and transform the DataFrame
 df_features = pd.DataFrame(imputer.fit_transform(df_features), columns=df_features.columns, index=df_features.index)
 df_features = df_features.loc[df_imputed_index.head(1).index[0]:df_imputed_index.tail(1).index[0]]
@@ -478,17 +447,21 @@ time_serie_plot = merged_df.index.astype(str)
 
 # Initialize an empty DataFrame to store predicted returns
 predicted_returns_df = pd.DataFrame(index=merged_df.index)
-
+'''
 # Number of folds for cross-validation
 num_folds = 5
 
-# Create a 4x3 grid for subplots
+# Create a grid for subplots
 num_rows = 4
 num_cols = 3
 fig, axes = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=(15, 10), sharex=True)
 
 # Flatten the 2D array of subplots for easier indexing
 axes = axes.flatten()
+years = time_serie_plot.str[:4]
+
+print(f'Average Mean Absolute Error using {num_folds}-fold cross-validation')
+print('', sep='/n')
 
 # Iterate over each index
 for i, ticker in enumerate(ticker_list):
@@ -534,28 +507,36 @@ for i, ticker in enumerate(ticker_list):
     
     # Calculate average MAE across folds for the current stock
     average_mae = sum(mae_list) / len(mae_list)
-    print(f'Average Mean Absolute Error for {ticker} across {num_folds}-fold cross-validation: {average_mae}')
+    print(f'Average Mean Absolute Error for {ticker} - (Random Forest): {average_mae}')
     
     # Predict returns for the entire period
     predicted_returns = rf_model.predict(x_scaled)
     
     # Store predicted returns in the DataFrame
     predicted_returns_df[ticker] = predicted_returns
-    
 
-    # Plot the actual and predicted time series
-    axes[i].plot(time_serie_plot, y, label=f'Actual - {ticker}', color='blue')
-    axes[i].plot(time_serie_plot, predicted_returns, label=f'Predicted - {ticker}', linestyle='--', color='orange')
-    axes[i].set_title(f'Actual vs Predicted Returns for {ticker}')
-    axes[i].set_xlabel('Date')
-    axes[i].set_ylabel('Returns')
-    axes[i].legend()
+    # Plot the actual and predicted time series only if there is data
+    if not y.empty:
+        ax = axes[i]
+        ax.plot(time_serie_plot, y, label=f'Actual - {ticker}', color='blue')
+        ax.plot(time_serie_plot, predicted_returns, label=f'Predicted - {ticker}', linestyle='--', color='orange')
+        ax.set_title(f'Actual vs Predicted Returns for {ticker}')
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Returns')
+        ax.legend()
+
+        # Adjust x-axis labels
+        ax.set_xticks(time_serie_plot[::24])  # Set x-axis ticks every 24 months
+        ax.set_xticklabels(years[::24], rotation=45, fontsize=8)  # Set x-axis labels with every second year, rotated for better visibility
+
+# Hide empty subplots if the number of subplots is less than the total number of subplots in the grid
+for j in range(i + 1, len(axes)):
+    axes[j].axis('off')
 
 # Adjust layout
 plt.tight_layout()
 plt.show()
-
-
+'''
 
 
 # Regression Tree 
@@ -568,6 +549,8 @@ scaler = StandardScaler()
 x_scaled = scaler.fit_transform(merged_df[features_list])
 
 predicted_returns_df_dt = pd.DataFrame(index=merged_df.index)
+
+'''
 
 # Create a 4x3 grid for subplots for Decision Tree
 fig_dt, axes_dt = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=(15, 10), sharex=True)
@@ -629,7 +612,7 @@ plt.show()
 print("\nPredicted Returns DataFrame (Decision Tree):")
 print(predicted_returns_df_dt)
 
-
+'''
 
 
 
