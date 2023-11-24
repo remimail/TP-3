@@ -188,6 +188,7 @@ for i in ticker_list:
     
 df_index.columns = ticker_list
 df_index_rets = df_index.pct_change()   
+df_index_rets = df_index_rets[df_index_rets.index.notna()]
 df_index_rets = df_index_rets.resample('M').agg(lambda x: (x + 1).prod() - 1)
 df_index_rets.index = df_index_rets.index.to_period('M')
 df_index_rets.replace(0, np.nan, inplace=True)
