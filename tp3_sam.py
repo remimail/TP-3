@@ -185,13 +185,14 @@ for i in ticker_list:
     # Ensure the indices are unique
     df_index = pd.concat([df_index, stored_serie.loc[~stored_serie.index.duplicated(keep='first')]], axis=1)
 
-    
+
 df_index.columns = ticker_list
 df_index_rets = df_index.pct_change()   
+df_index_rets = df_index_rets[df_index_rets.index.notna()]
 df_index_rets = df_index_rets.resample('M').agg(lambda x: (x + 1).prod() - 1)
 df_index_rets.index = df_index_rets.index.to_period('M')
 df_index_rets.replace(0, np.nan, inplace=True)
- 
+
 
 common_index = df_index_rets.index.intersection(etf_monthly_rets.index)
 common_index = common_index[
