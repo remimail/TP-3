@@ -22,6 +22,8 @@ from sklearn.tree import DecisionTreeRegressor
 from scipy.stats import skew, kurtosis
 import seaborn as sns
 import warnings
+import riskfolio as rp
+
 
 # Ignore all warnings
 warnings.filterwarnings("ignore")
@@ -167,12 +169,17 @@ def plot_time_series_grid(dataframe, title='Benchmark Indexes Time Series', y_ax
     fig.suptitle(title, fontsize=16).set_y(1.01)
 
     plt.show()
+    
+    # Function to get the index of the first non-NaN value in each column
+def first_non_nan_index(column):
+    return column.first_valid_index()
 
 
 # Code -------------------------------------------------------------------------------------
 
 etf_monthly_rets = getData(ticker_list)
 etf_monthly_rets.replace(0, np.nan, inplace=True)
+etf_monthly_rets=etf_monthly_rets.loc["01-2007":]
 
 
 df_index = pd.DataFrame()
@@ -185,14 +192,14 @@ for i in ticker_list:
     # Ensure the indices are unique
     df_index = pd.concat([df_index, stored_serie.loc[~stored_serie.index.duplicated(keep='first')]], axis=1)
 
-
+    
 df_index.columns = ticker_list
 df_index_rets = df_index.pct_change()   
 df_index_rets = df_index_rets[df_index_rets.index.notna()]
 df_index_rets = df_index_rets.resample('M').agg(lambda x: (x + 1).prod() - 1)
 df_index_rets.index = df_index_rets.index.to_period('M')
 df_index_rets.replace(0, np.nan, inplace=True)
-
+df_index_rets=df_index_rets.loc["01-2007":]
 
 common_index = df_index_rets.index.intersection(etf_monthly_rets.index)
 common_index = common_index[
@@ -290,7 +297,7 @@ for k in knn:
 '''
 
 # Create a KNNImputer instance
-imputer = KNNImputer(n_neighbors=5)  # You can adjust the number of neighbors as needed
+imputer = KNNImputer(n_neighbors=50)  # You can adjust the number of neighbors as needed
 # Fit the imputer on the data and transform the DataFrame
 df_imputed_index = pd.DataFrame(imputer.fit_transform(df_index_rets), columns=df_index_rets.columns, index=df_index_rets.index)
 df_imputed_etf = pd.DataFrame(imputer.fit_transform(etf_monthly_rets), columns=etf_monthly_rets.columns, index=etf_monthly_rets.index)
@@ -372,12 +379,12 @@ features_list = ['BAMLCC0A0CMTRIV', 'BAMLC0A4CBBB', 'BAMLC0A3CA', 'HQMCB10YR', '
                  'T5YFF', 'T1YFF', 'DLTIIT', 'NASDAQCOM', 'WILL5000PR', 'WILLLRGCAP', 'WILLSMLCAP', 'WILLLRGCAPGR', 
                  'WILLLRGCAPVAL', 'WILLMIDCAP', 'MSPUS', 'CCSA', 'BOPGSTB', 'VIXCLS', 'USSLIND', 'USALOLITONOSTSAM', 'UNRATE', 
                  'STICKCPIM157SFRBATL', 'EMVMACROBUS', 'MORTGAGE30US',  'WILLRESIPR', 'SBPREUE', 'MXEUMC', 'MXEULC', 'SPAXLCUP', 'SBPRAPU',
-                 'MEMMG', 'MEMMG', 'MXEF', 'MXEFLC', 'MXEFMC', 'SML']
+                 'MEMMG', 'MXEF', 'MXEFLC', 'MXEFMC', 'SML']
 
 
 df_features = pd.DataFrame(columns=features_list)
 
-features_from_fred_list = features_list[:-11]
+features_from_fred_list = features_list[:-10]
 df_features_from_fred = pd.DataFrame(columns=features_from_fred_list)
 
 
@@ -391,7 +398,7 @@ for i in features_from_fred_list:
         print(f"Error fetching data for {i}: {e}")
 
 
-features_from_files_list = features_list[-11:]
+features_from_files_list = features_list[-10:]
 df_imported_feat = pd.DataFrame()
 
 
@@ -418,6 +425,7 @@ df_features = df_features.loc[df_imputed_index.head(1).index[0]:df_imputed_index
 
 
 merged_df = pd.merge(df_features, df_imputed_index, left_index=True, right_index=True)
+merged_df = merged_df.loc["01-2007":]
 
 # Specify columns to lag
 columns_to_lag = features_list
@@ -527,8 +535,8 @@ for i, ticker in enumerate(ticker_list):
         ax.legend()
 
         # Adjust x-axis labels
-        ax.set_xticks(time_serie_plot[::24])  # Set x-axis ticks every 24 months
-        ax.set_xticklabels(years[::24], rotation=45, fontsize=8)  # Set x-axis labels with every second year, rotated for better visibility
+        ax.set_xticks(time_serie_plot[::12])  # Set x-axis ticks every 24 months
+        ax.set_xticklabels(years[::12], rotation=45, fontsize=8)  # Set x-axis labels with every second year, rotated for better visibility
 
 # Hide empty subplots if the number of subplots is less than the total number of subplots in the grid
 for j in range(i + 1, len(axes)):
@@ -552,10 +560,11 @@ x_scaled = scaler.fit_transform(merged_df[features_list])
 predicted_returns_df_dt = pd.DataFrame(index=merged_df.index)
 
 '''
-
 # Create a 4x3 grid for subplots for Decision Tree
 fig_dt, axes_dt = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=(15, 10), sharex=True)
 axes_dt = axes_dt.flatten()
+print('Average Mean Absolute Error using {num_folds}-fold cross-validation - \033[1mRegression Tree\033[0m')
+print('', sep='/n')
 
 for i, ticker in enumerate(ticker_list):
     # Initialize Decision Tree model
@@ -589,7 +598,7 @@ for i, ticker in enumerate(ticker_list):
     
     # Calculate average MAE across folds for the current stock
     average_mae_dt = sum(mae_list_dt) / len(mae_list_dt)
-    print(f'Average Mean Absolute Error for {ticker} across {num_folds}-fold cross-validation (Decision Tree): {average_mae_dt}')
+    print(f'Average Mean Absolute Error for {ticker}: {average_mae_dt}')
     
     # Predict returns for the entire period using Decision Tree
     predicted_returns_dt = dt_model.predict(x_scaled)
@@ -598,63 +607,25 @@ for i, ticker in enumerate(ticker_list):
     predicted_returns_df_dt[ticker] = predicted_returns_dt
     
     # Plot the actual and predicted time series for Decision Tree
-    axes_dt[i].plot(time_serie_plot, merged_df[ticker], label=f'Actual - {ticker}', color='blue')
-    axes_dt[i].plot(time_serie_plot, predicted_returns_dt, label=f'Predicted (DT) - {ticker}', linestyle='--', color='yellow')
-    axes_dt[i].set_title(f'Actual vs Predicted Returns for {ticker} (Decision Tree)')
-    axes_dt[i].set_xlabel('Date')
-    axes_dt[i].set_ylabel('Returns')
-    axes_dt[i].legend()
+    ax = axes_dt[i]
+    ax.plot(time_serie_plot, merged_df[ticker], label=f'Actual - {ticker}', color='blue')
+    ax.plot(time_serie_plot, predicted_returns_dt, label=f'Predicted (DT) - {ticker}', linestyle='--', color='yellow')
+    ax.set_title(f'Actual vs Predicted Returns for {ticker} (Decision Tree)')
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Returns')
+    ax.legend()
+
+    # Adjust x-axis labels
+    ax.set_xticks(time_serie_plot[::12])  # Set x-axis ticks every 24 months
+    ax.set_xticklabels(years[::12], rotation=45, fontsize=8)  # Set x-axis labels with every second year, rotated for better visibility
+
+# Hide empty subplots if the number of subplots is less than the total number of subplots in the grid
+for j in range(i + 1, len(axes_dt)):
+    axes_dt[j].axis('off')
 
 # Adjust layout for Decision Tree
 plt.tight_layout()
+fig_dt.suptitle('Regression Tree', fontsize=16).set_y(1.02)  # Adjust the y parameter for subtitle placement
 plt.show()
 
-# Display the DataFrame with predicted returns for each stock using Decision Tree
-print("\nPredicted Returns DataFrame (Decision Tree):")
-print(predicted_returns_df_dt)
-
 '''
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
