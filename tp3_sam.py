@@ -23,6 +23,7 @@ from scipy.stats import skew, kurtosis
 import seaborn as sns
 import warnings
 import riskfolio as rp
+from riskfolio import factors_constraints
 
 
 # Ignore all warnings
@@ -179,7 +180,7 @@ def first_non_nan_index(column):
 
 etf_monthly_rets = getData(ticker_list)
 etf_monthly_rets.replace(0, np.nan, inplace=True)
-etf_monthly_rets=etf_monthly_rets.loc["01-2007":]
+etf_monthly_rets=etf_monthly_rets.loc["01-2005":]
 
 
 df_index = pd.DataFrame()
@@ -199,7 +200,7 @@ df_index_rets = df_index_rets[df_index_rets.index.notna()]
 df_index_rets = df_index_rets.resample('M').agg(lambda x: (x + 1).prod() - 1)
 df_index_rets.index = df_index_rets.index.to_period('M')
 df_index_rets.replace(0, np.nan, inplace=True)
-df_index_rets=df_index_rets.loc["01-2007":]
+df_index_rets=df_index_rets.loc["01-2005":]
 
 common_index = df_index_rets.index.intersection(etf_monthly_rets.index)
 common_index = common_index[
@@ -425,7 +426,7 @@ df_features = df_features.loc[df_imputed_index.head(1).index[0]:df_imputed_index
 
 
 merged_df = pd.merge(df_features, df_imputed_index, left_index=True, right_index=True)
-merged_df = merged_df.loc["01-2007":]
+merged_df = merged_df.loc["01-2005":]
 
 # Specify columns to lag
 columns_to_lag = features_list
