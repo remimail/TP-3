@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Mon Nov 27 17:35:29 2023
+
+@author: Samuel
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Tue Nov 21 18:52:02 2023
 
 @author: Samuel
@@ -450,14 +457,14 @@ x_scaled = scaler.fit_transform(x)
 time_serie_plot = merged_df.index.astype(str)
 
 
-
+'''
 
 # Random Forest 
 #==============================================================================================================================
 
 # Initialize an empty DataFrame to store predicted returns
 predicted_returns_df = pd.DataFrame(index=merged_df.index)
-'''
+
 # Number of folds for cross-validation
 num_folds = 5
 
@@ -546,8 +553,8 @@ for j in range(i + 1, len(axes)):
 # Adjust layout
 plt.tight_layout()
 plt.show()
-'''
 
+'''
 
 # Regression Tree 
 #==============================================================================================================================
@@ -628,5 +635,482 @@ for j in range(i + 1, len(axes_dt)):
 plt.tight_layout()
 fig_dt.suptitle('Regression Tree', fontsize=16).set_y(1.02)  # Adjust the y parameter for subtitle placement
 plt.show()
+
+'''
+
+# ESG Portfolio linear constraint
+
+# Your DataFrame
+ESG_constraint_data = {
+    'ESG Fund Rating': [6.6, 8.6, 7.1, 7.3, 6.5, 5.7, 6, 5.7, 8.2, 7.9, 7.6],
+}
+
+ESG_constraint = pd.DataFrame(ESG_constraint_data)
+
+# Define the constraints based on your DataFrame
+constraints = pd.DataFrame({
+    'Disabled': [False],
+    'Factor': ['ESG Fund Rating'],
+    'Sign': ['>='],
+    'Value': [7],
+    'Relative Factor': '',
+})
+
+# Create the factors constraints matrices C and D
+C, D = factors_constraints(constraints, loadings=ESG_constraint)
+
+ETF_fees = [0.0015, 0.001, 0.0025, 0.0017, 0.0012, 0.002, 0.0015, 0.0025, 0.0005, 0.0004, 0.0018]
+
+
+ranked_returns = predicted_returns_df.rank(axis=1, ascending=False, method='max')
+
+# Min Variance ,Black Litterman and Efficient frontier optimization at each month
+
+
+# Assuming you have initialized your DataFrames for minimum variance and Black Litterman results
+columns_min_variance = ['Date', 'ESG Score'] + list(df_imputed_index.columns)
+monthly_min_variance = pd.DataFrame(columns=columns_min_variance)
+columns_bl_variance = ['Date', 'ESG Score'] + list(df_imputed_index.columns)
+monthly_bl_variance = pd.DataFrame(columns=columns_bl_variance)
+monthly_mu_cov_bl = []
+
+# Define the start and end dates
+start_date = '2010-01'
+end_date = '2023-01'
+
+# Convert the start and end dates to Timestamp objects
+start_date_timestamp = pd.Timestamp(start_date)
+end_date_timestamp = pd.Timestamp(end_date)
+
+#If we want to backtest on imputed data for etf returns :
+returns_period = df_imputed_index[(df_imputed_index.index >= start_date) & (df_imputed_index.index <= end_date)]
+
+# Get relative ranking
+relative_ranking = ranked_returns.loc[start_date:]
+
+asset_classes = {'Assets': ["ESGU", "EAGG", "ESGE", "ESML", "SUSB", "ESGD", "SHY", "SUSA", "GOVT", "MBB", "SUSC"]}
+
+asset_classes = pd.DataFrame(asset_classes)
+asset_classes = asset_classes.sort_values(by=['Assets'])
+
+# Create an empty list to store efficient frontier results for each date
+efficient_frontier_list = []
+efficient_frontier_list_bl = []  # Initialize the list for Black Litterman results
+efficient_frontier_dict={}
+# Iterate over the rolling windows
+while start_date_timestamp < end_date_timestamp:
+    # Filter the DataFrame for the current month for minimum variance optimization
+    rets_df = df_imputed_index[
+        (df_imputed_index.index.to_timestamp() < start_date_timestamp) &
+        (df_imputed_index.index.to_timestamp() >= start_date_timestamp - pd.DateOffset(months=108))
+    ]
+
+    # Building the portfolio object for minimum variance optimization
+    port_min_variance = rp.Portfolio(returns=rets_df, ainequality=C, binequality=D, nea=6, allowTO=False, turnover=0.04)
+
+    # Select method and estimate input parameters for minimum variance optimization
+    method_mu = 'hist'
+    method_cov = 'hist'
+    port_min_variance.assets_stats(method_mu=method_mu, method_cov=method_cov, d=0.94)
+
+    model_min_variance = 'Classic'
+    rm_min_variance = 'MV'
+    obj_min_variance = 'MinRisk'
+    hist_min_variance = True
+    rf_min_variance = 0
+    l_min_variance = 0
+
+    # Perform minimum variance optimization
+    w_min_variance = port_min_variance.optimization(model=model_min_variance, rm=rm_min_variance, obj=obj_min_variance,
+                                                    rf=rf_min_variance, l=l_min_variance, hist=hist_min_variance)
+
+    # Calculate the ESG Score for the minimum variance portfolio
+    w_min_variance_weights = w_min_variance['weights'].values.reshape(1, -1)
+    esg_ratings_min_variance = ESG_constraint['ESG Fund Rating'].values.reshape(-1, 1)
+    ESG_Rating_portfolio_min_variance = w_min_variance_weights.dot(esg_ratings_min_variance).item()
+
+    # Create a dictionary to store the results for the minimum variance portfolio
+    result_dict_min_variance = {
+        'Date': start_date_timestamp,
+        'ESG Score': ESG_Rating_portfolio_min_variance
+    }
+
+    # Add weights for each ETF to the dictionary
+    result_dict_min_variance.update(dict(zip(df_imputed_index.columns, w_min_variance['weights'].values)))
+
+    # Append the results for the minimum variance portfolio to the list
+    efficient_frontier_list.append(result_dict_min_variance)
+
+    # Increment the start_date_timestamp
+    start_date_timestamp += pd.DateOffset(months=1)
+
+#########################################   BLACK-LITTERMAN  ###########################################
+
+    # Extract top 2 and bottom 2 assets based on rankings for the specific date
+    top_assets = relative_ranking.loc[start_date_timestamp].nsmallest(2).index
+    bottom_assets = relative_ranking.loc[start_date_timestamp].nlargest(2).index
+
+    # Create views with dynamic positions and relatives
+    views = {
+        'Disabled': [False, False],
+        'Type': ['Assets', 'Assets'],
+        'Set': ['', ''],
+        'Position': [top_assets[0], top_assets[1]],
+        'Sign': ['>=', '>='],
+        'Return': [0.05, 0.05],  # Annual terms
+        'Type Relative': ['Assets', 'Assets'],
+        'Relative Set': ['', ''],
+        'Relative': [bottom_assets[0], bottom_assets[1]]
+    }
+
+    views_df = pd.DataFrame(views)
+      # Get the P, Q matrices from the views
+    P, Q = rp.assets_views(views_df, asset_classes)
+
+    # Estimate Black Litterman inputs for minimum variance portfolio
+    port_min_variance.blacklitterman_stats(P, Q/12, rf=rf_min_variance, w=w_min_variance['weights'].to_frame(), delta=None, eq=True)
+
+    model_bl_min_variance = 'BL'  # Black Litterman
+    rm_bl_min_variance = 'MV'  # Risk measure used, this time will be variance
+    obj_bl_min_variance = 'Sharpe'  # Objective function, could be MinRisk, MaxRet, Utility or Sharpe
+    hist_bl_min_variance = False  # Use historical scenarios for risk measures that depend on scenarios
+
+    # Perform Black Litterman optimization for minimum variance portfolio
+    w_bl_min_variance = port_min_variance.optimization(model=model_bl_min_variance, rm=rm_bl_min_variance, obj=obj_bl_min_variance, rf=rf_min_variance, l=l_min_variance, hist=hist_bl_min_variance)
+
+    # Calculate the ESG Score for the Black Litterman portfolio
+    w_bl_weights_min_variance = w_bl_min_variance['weights'].values.reshape(1, -1)
+    esg_ratings_bl_min_variance = ESG_constraint['ESG Fund Rating'].values.reshape(-1, 1)
+    ESG_Rating_portfolio_bl_min_variance = w_bl_weights_min_variance.dot(esg_ratings_bl_min_variance).item()
+
+    # Create a dictionary to store the results for the Black Litterman portfolio
+    result_dict_bl_min_variance = {
+        'Date': start_date_timestamp,
+        'ESG Score': ESG_Rating_portfolio_bl_min_variance
+    }
+
+    # Add weights for each ETF to the dictionary
+    result_dict_bl_min_variance.update(dict(zip(df_imputed_index.columns, w_bl_min_variance['weights'].values)))
+
+    # Append the results for the Black Litterman portfolio to the list
+    efficient_frontier_list_bl.append(result_dict_bl_min_variance)
+
+    # Increment the start_date_timestamp
+    start_date_timestamp += pd.DateOffset(months=1)
+
+    # Convert the list of dictionaries to a DataFrame for minimum variance
+    monthly_min_variance = pd.DataFrame(efficient_frontier_list)
+
+    # Ensure that monthly_bl_variance is initialized as an empty DataFrame
+    monthly_bl_variance = pd.DataFrame(columns=columns_bl_variance)
+
+    # Convert the list of dictionaries to a DataFrame for Black Litterman
+    monthly_bl_variance = pd.DataFrame(efficient_frontier_list_bl)
+
+
+    ######################## EFFICIENT FRONTIER ########################
+
+    # Calculate and store efficient frontier results
+    points = 5  # Number of points on the frontier
+    frontier_weights = port_min_variance.efficient_frontier(model=model_bl_min_variance, rm=rm_bl_min_variance, points=points, rf=rf_min_variance, hist=hist_bl_min_variance).T
+
+    # Create a dictionary to store the efficient frontier weights and ESG scores for the current date
+    frontier_dict_for_date = {
+        'Date': start_date_timestamp,
+        'Points': []
+    }
+
+    # Iterate over each portfolio on the efficient frontier
+    for i in range(points):
+        # Calculate the ESG Score for the current portfolio
+        w_weights = frontier_weights.iloc[i, :].values.reshape(1, -1)
+        ESG_Rating_portfolio = w_weights.dot(esg_ratings_bl_min_variance).item()
+
+        # Add the ESG Score and weights for each ETF to the dictionary
+        portfolio_dict = {
+            'Point': i + 1,  # Adding 1 to start indexing from 1
+            'ESG Score': ESG_Rating_portfolio,
+            'Weights': {ticker: weight for ticker, weight in zip(frontier_weights.columns[:], w_weights[0])}
+        }
+
+        frontier_dict_for_date['Points'].append(portfolio_dict)
+
+    #  Now 'frontier_dict_for_date' contains the information for each point on the efficient frontier for the current date
+
+
+        # Store mu_bl and cov_bl for later use
+        mu_cov_bl = {
+            'Date': start_date_timestamp,
+            'mu_bl': port_min_variance.mu_bl.to_dict(orient = 'records')[0],
+            'cov_bl': port_min_variance.cov_bl.to_dict(orient = 'records')
+        }
+        monthly_mu_cov_bl.append(mu_cov_bl)
+
+    # Update the efficient_frontier_dict with the current date and efficient frontier information
+    efficient_frontier_dict[start_date_timestamp] = frontier_dict_for_date
+
+
+    
+    
+#Calculate the cumulative return and the fees of our portfolio according to the risk rolerance
+
+# Initialize lists to store data
+portfolio_returns_bl_data = []
+portfolio_returns_mv_data = []
+portfolio_returns_1_data = []
+portfolio_returns_2_data = []
+portfolio_returns_3_data = []
+portfolio_returns_4_data = []
+portfolio_returns_5_data = []
+portfolio_returns_eq_w_data = []
+
+# Iterate over each date in the period
+for index, row in monthly_bl_variance.iterrows():
+    # Extract the date and weights for the current row
+    date = row['Date']
+    weights = row.drop(['Date', 'ESG Score']).values
+
+    # Check if the date is present in the returns_period DataFrame
+    if date in returns_period.index:
+        # Extract the returns for the current date
+        returns_at_date = returns_period.loc[date]
+
+        # Calculate the portfolio return for the current date
+        portfolio_return_bl = np.dot(returns_at_date, weights)
+
+        # Append the data to the list
+        portfolio_returns_bl_data.append({'Date': date, 'Portfolio_Return': portfolio_return_bl})
+
+# Iterate over each date in the period
+for index, row in monthly_min_variance.iloc[3:].iterrows():
+    # Extract the date and weights for the current row
+    date = row['Date']
+    weights = row.drop(['Date', 'ESG Score']).values
+
+    # Check if the date is present in the returns_period DataFrame
+    if date in returns_period.index:
+        # Extract the returns for the current date
+        returns_at_date = returns_period.loc[date]
+
+        # Calculate the portfolio return for the current date
+        portfolio_return_mv = np.dot(returns_at_date, weights)
+        portfolio_fees_mv = np.dot(ETF_fees, weights)
+
+        # Append the data to the list
+        portfolio_returns_mv_data.append({'Date': date, 'Portfolio_Return': portfolio_return_mv, 'Fees': portfolio_fees_mv})
+
+        # Check if the date is present in the dictionary
+        if date in efficient_frontier_dict:
+            # Extract the points and create a DataFrame
+            points = efficient_frontier_dict[date]['Points']
+
+            weights_1 = np.array(list(points[0]['Weights'].values()))
+            weights_2 = np.array(list(points[1]['Weights'].values()))
+            weights_3 = np.array(list(points[2]['Weights'].values()))
+            weights_4 = np.array(list(points[3]['Weights'].values()))
+            weights_5 = np.array(list(points[4]['Weights'].values()))
+        else:
+            # Handle the case when the date is not present in the dictionary
+            weights_1 = weights_2 = weights_3 = weights_4 = weights_5 = np.nan  # You can choose an appropriate way to handle this
+
+        # Calculate the portfolio return for the current date
+        portfolio_return_1 = np.dot(returns_at_date, weights_1)
+        # Calculate the portfolio return for the current date
+        portfolio_return_2 = np.dot(returns_at_date, weights_2)
+        # Calculate the portfolio return for the current date
+        portfolio_return_3 = np.dot(returns_at_date, weights_3)
+        # Calculate the portfolio return for the current date
+        portfolio_return_4 = np.dot(returns_at_date, weights_4)
+        # Calculate the portfolio return for the current date
+        portfolio_return_5 = np.dot(returns_at_date, weights_5)
+
+        # Calculate the portfolio fee for the current date
+        portfolio_fees_1 = np.dot(ETF_fees, weights_1)
+        portfolio_fees_2 = np.dot(ETF_fees, weights_2)
+        portfolio_fees_3 = np.dot(ETF_fees, weights_3)
+        portfolio_fees_4 = np.dot(ETF_fees, weights_4)
+        portfolio_fees_5 = np.dot(ETF_fees, weights_5)
+
+        # Append the date and portfolio return to the DataFrame
+        portfolio_returns_1_data.append({'Date': date, 'Portfolio_Return': portfolio_return_1, 'Fees': portfolio_fees_1, 'ESG Score': efficient_frontier_dict[date]['Points'][0]['ESG Score']})
+        # Append the date and portfolio return to the DataFrame
+        portfolio_returns_2_data.append({'Date': date, 'Portfolio_Return': portfolio_return_2, 'Fees': portfolio_fees_2, 'ESG Score': efficient_frontier_dict[date]['Points'][1]['ESG Score']})
+        # Append the date and portfolio return to the DataFrame
+        portfolio_returns_3_data.append({'Date': date, 'Portfolio_Return': portfolio_return_3, 'Fees': portfolio_fees_3, 'ESG Score': efficient_frontier_dict[date]['Points'][2]['ESG Score']})
+        # Append the date and portfolio return to the DataFram
+        portfolio_returns_4_data.append({'Date': date, 'Portfolio_Return': portfolio_return_4, 'Fees': portfolio_fees_4, 'ESG Score': efficient_frontier_dict[date]['Points'][3]['ESG Score']})
+        # Append the date and portfolio return to the DataFrame
+        portfolio_returns_5_data.append({'Date': date, 'Portfolio_Return': portfolio_return_5, 'Fees': portfolio_fees_5, 'ESG Score': efficient_frontier_dict[date]['Points'][4]['ESG Score']})
+        weights_eq_w = np.full(11, 1/11)    
+        portfolio_return_eq_w = np.dot(returns_at_date, weights_eq_w)
+
+        # Append the data to the list
+        portfolio_returns_eq_w_data.append({'Date': date, 'Portfolio_Return': portfolio_return_eq_w})
+
+# Create DataFrames from the lists
+portfolio_returns_bl = pd.DataFrame(portfolio_returns_bl_data)
+portfolio_returns_mv = pd.DataFrame(portfolio_returns_mv_data)
+portfolio_returns_1 = pd.DataFrame(portfolio_returns_1_data)
+portfolio_returns_2 = pd.DataFrame(portfolio_returns_2_data)
+portfolio_returns_3 = pd.DataFrame(portfolio_returns_3_data)
+portfolio_returns_4 = pd.DataFrame(portfolio_returns_4_data)
+portfolio_returns_5 = pd.DataFrame(portfolio_returns_5_data)
+portfolio_returns_eq_w = pd.DataFrame(portfolio_returns_eq_w_data)
+
+
+
+# Retrieve the matrix of changes in the weights
+
+#If true, show the percentage change --> not well behaved since weights changes from previous month that were close to 0 explode
+relative = False
+
+# Create an empty DataFrame to store the combined data
+combined_df = pd.DataFrame()
+
+# Loop through each date in the dictionary
+for date, data in efficient_frontier_dict.items():
+    # Access the 'Points' data for each date
+    df_date = pd.DataFrame(data['Points'])
+    
+    # Add a new column for the date
+    df_date['Date'] = date
+    
+    # Concatenate the data for each date
+    combined_df = pd.concat([combined_df, df_date])
+
+# Reset the index of the combined DataFrame
+combined_df.reset_index(drop=True, inplace=True)
+
+# Create an empty DataFrame to store weights evolution
+weights_evolution_df = pd.DataFrame()
+
+# Iterate through unique points
+for point in combined_df['Point'].unique():
+    # Filter the DataFrame for each point
+    point_df = combined_df[combined_df['Point'] == point]
+
+    # Iterate through each row of the filtered DataFrame
+    for index, row in point_df.iterrows():
+        # Access the 'Weights' column directly
+        weights_dict = row['Weights']
+        
+        # Create columns for each ticker in the weights dictionary
+        for ticker, weight in weights_dict.items():
+            # Create a new column for each ticker with the corresponding weight
+            point_df.at[index, ticker] = weight
+    
+    # Drop unnecessary columns
+    point_df = point_df.drop(columns=['Weights', 'ESG Score'])
+
+    if relative:
+        # Calculate the month-to-month change for each ticker excluding the 'Point' column
+        change_df = point_df.set_index(['Date', 'Point']).pct_change().reset_index()
+    else:
+        # Calculate the absolute month-to-month change for each ticker excluding the 'Point' column
+        change_df = point_df.set_index(['Date', 'Point']).diff().reset_index()
+
+    # Concatenate the data for each point
+    weights_evolution_df = pd.concat([weights_evolution_df, change_df])
+
+# Reset the index of the weights evolution DataFrame
+weights_evolution_df.reset_index(drop=True, inplace=True)
+
+
+
+
+# Convert the 'Date' column to a datetime type for all portfolios
+for portfolio_returns, label in zip(
+        [portfolio_returns_1, portfolio_returns_2, portfolio_returns_3, portfolio_returns_4, portfolio_returns_5, portfolio_returns_mv,portfolio_returns_eq_w],
+        ['Portfolio 1', 'Portfolio 2', 'Portfolio 3', 'Portfolio 4', 'Portfolio 5', 'Minimum Variance', 'Equally Weighted']):
+    portfolio_returns['Date'] = pd.to_datetime(portfolio_returns['Date'])
+    portfolio_returns['Cumulative_Return'] = (1 + portfolio_returns['Portfolio_Return']).cumprod()
+    
+    
+    
+#---------------------- In notebook ---------------------------------------------------
+
+'''
+
+
+efficient_frontier_dict
+
+
+
+
+
+# Plotting
+plt.figure(figsize=(12, 6))
+
+# Plot cumulative returns for all portfolios
+for i, (portfolio_returns, label) in enumerate(zip(
+        [portfolio_returns_1, portfolio_returns_2, portfolio_returns_3, portfolio_returns_4, portfolio_returns_5, portfolio_returns_mv,portfolio_returns_eq_w],
+        ['Portfolio 1', 'Portfolio 2', 'Portfolio 3', 'Portfolio 4', 'Portfolio 5', 'Minimum Variance', 'Equally Weighted'])):
+    plt.plot(portfolio_returns['Date'], portfolio_returns['Cumulative_Return'], label=label)
+
+plt.title('Cumulative Return Over Time for Multiple Portfolios')
+plt.xlabel('Date')
+plt.ylabel('Cumulative Return')
+plt.legend()
+plt.show()
+
+
+# ------------------------------------- ESG Time Series plot -------------------------------------------------------------
+
+
+# Assuming portfolio_returns_1, ..., portfolio_returns_5, monthly_min_variance contain 'Date' and 'ESG Score'
+# Convert the 'Date' column to a datetime type
+for portfolio_returns in [portfolio_returns_1, portfolio_returns_2, portfolio_returns_3, portfolio_returns_4, portfolio_returns_5, monthly_min_variance]:
+    portfolio_returns['Date'] = pd.to_datetime(portfolio_returns['Date'])
+
+# Plotting
+plt.figure(figsize=(12, 6))
+
+
+print(f'\033[1mMean ESG score on Backtest period:\033[0m')
+print('', sep='\n')
+
+# Plot ESG scores for portfolios 1 to 5
+for i, portfolio_returns in enumerate([portfolio_returns_1, portfolio_returns_2, portfolio_returns_3, portfolio_returns_4, portfolio_returns_5]):
+    plt.plot(portfolio_returns['Date'], portfolio_returns['ESG Score'], label=f'Portfolio {i + 1}')
+    print(f'Portfolio {i+1}: {np.mean(portfolio_returns["ESG Score"])}')
+
+# Plot ESG scores for monthly_min_variance
+plt.plot(monthly_min_variance['Date'], monthly_min_variance['ESG Score'], label='Min Variance', linestyle='--', color='black')
+
+plt.yticks(np.arange(6.8, 8, 0.1))
+
+# Add a horizontal line at y=7
+#plt.axhline(y=7, color='red', linestyle='--', alpha=0.5)
+
+plt.title('ESG Score Over Time For Optimized Portfolios And Min Variance Portfolio')
+plt.xlabel('Date')
+plt.ylabel('ESG Score')
+plt.legend()
+plt.show()
+
+
+
+
+#------------------------------------------------------------------------------------------------
+
+
+
+print(np.mean(ETF_fees))
+print(portfolio_returns_1['Fees'].mean())
+print(portfolio_returns_2['Fees'].mean())
+print(portfolio_returns_3['Fees'].mean())
+print(portfolio_returns_4['Fees'].mean())
+print(portfolio_returns_5['Fees'].mean())
+
+
+#------------------------------------------------------------------------------------------------
+
+
+# Retrieve the matrix of changes in the weights
+weights_evolution_df
+
+### Example for the 1st portfolio 
+
+weights_evolution_df[weights_evolution_df['Point'] == 1]
 
 '''
