@@ -5,8 +5,6 @@ Created on Mon Nov 27 17:35:29 2023
 @author: Samuel
 """
 
-
-
 from pandas_datareader import data as pdr
 import numpy as np
 import yfinance as yf
