@@ -5,12 +5,7 @@ Created on Mon Nov 27 17:35:29 2023
 @author: Samuel
 """
 
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Nov 21 18:52:02 2023
 
-@author: Samuel
-"""
 
 from pandas_datareader import data as pdr
 import numpy as np
@@ -182,6 +177,21 @@ def plot_time_series_grid(dataframe, title='Benchmark Indexes Time Series', y_ax
 def first_non_nan_index(column):
     return column.first_valid_index()
 
+
+def compute_avg_turnover_and_exec_cost(df_turnover, df_execution, columns):
+    for i in columns:
+        # Create a masked array where values equal to 0 are masked
+        df_turnover[i] = np.ma.masked_where(df_turnover[i] == 0, df_turnover[i])
+        
+        print(f'Portfolio {i}')
+        print(f'Average yearly turnover: {np.mean(df_turnover[i])*100} %')
+        
+        # Assuming df_exec_cost is a column in your DataFrame
+        # Create a masked array for execution cost
+        df_execution[i]= np.ma.masked_where(df_execution[i] == 0, df_execution[i])
+        
+        print(f'Average execution cost estimation: {np.mean(df_execution[i])} $')
+        print('', sep='\n')
 
 # Code -------------------------------------------------------------------------------------
 
@@ -457,7 +467,7 @@ x_scaled = scaler.fit_transform(x)
 time_serie_plot = merged_df.index.astype(str)
 
 
-'''
+
 
 # Random Forest 
 #==============================================================================================================================
@@ -467,7 +477,7 @@ predicted_returns_df = pd.DataFrame(index=merged_df.index)
 
 # Number of folds for cross-validation
 num_folds = 5
-
+'''
 # Create a grid for subplots
 num_rows = 4
 num_cols = 3
@@ -480,6 +490,7 @@ years = time_serie_plot.str[:4]
 print(f'Average Mean Absolute Error using {num_folds}-fold cross-validation')
 print('', sep='/n')
 
+'''
 # Iterate over each index
 for i, ticker in enumerate(ticker_list):
     # Extract features and target variable for the current stock
@@ -524,14 +535,14 @@ for i, ticker in enumerate(ticker_list):
     
     # Calculate average MAE across folds for the current stock
     average_mae = sum(mae_list) / len(mae_list)
-    print(f'Average Mean Absolute Error for {ticker} - (Random Forest): {average_mae}')
+#   print(f'Average Mean Absolute Error for {ticker} - (Random Forest): {average_mae}')
     
     # Predict returns for the entire period
     predicted_returns = rf_model.predict(x_scaled)
     
     # Store predicted returns in the DataFrame
     predicted_returns_df[ticker] = predicted_returns
-
+'''
     # Plot the actual and predicted time series only if there is data
     if not y.empty:
         ax = axes[i]
@@ -554,8 +565,8 @@ for j in range(i + 1, len(axes)):
 plt.tight_layout()
 plt.show()
 
-'''
 
+'''
 # Regression Tree 
 #==============================================================================================================================
 #  Decision Tree 
@@ -566,8 +577,8 @@ scaler = StandardScaler()
 x_scaled = scaler.fit_transform(merged_df[features_list])
 
 predicted_returns_df_dt = pd.DataFrame(index=merged_df.index)
-
 '''
+
 # Create a 4x3 grid for subplots for Decision Tree
 fig_dt, axes_dt = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=(15, 10), sharex=True)
 axes_dt = axes_dt.flatten()
@@ -637,7 +648,6 @@ fig_dt.suptitle('Regression Tree', fontsize=16).set_y(1.02)  # Adjust the y para
 plt.show()
 
 '''
-
 # ESG Portfolio linear constraint
 
 # Your DataFrame
@@ -658,6 +668,7 @@ constraints = pd.DataFrame({
 
 # Create the factors constraints matrices C and D
 C, D = factors_constraints(constraints, loadings=ESG_constraint)
+
 
 ETF_fees = [0.0015, 0.001, 0.0025, 0.0017, 0.0012, 0.002, 0.0015, 0.0025, 0.0005, 0.0004, 0.0018]
 
@@ -706,7 +717,7 @@ while start_date_timestamp < end_date_timestamp:
     ]
 
     # Building the portfolio object for minimum variance optimization
-    port_min_variance = rp.Portfolio(returns=rets_df, ainequality=C, binequality=D, nea=6, allowTO=False, turnover=0.04)
+    port_min_variance = rp.Portfolio(returns=rets_df, ainequality=C, binequality=D, nea=6, allowTO=True, turnover=0.0461)
 
     # Select method and estimate input parameters for minimum variance optimization
     method_mu = 'hist'
@@ -741,8 +752,6 @@ while start_date_timestamp < end_date_timestamp:
     # Append the results for the minimum variance portfolio to the list
     efficient_frontier_list.append(result_dict_min_variance)
 
-    # Increment the start_date_timestamp
-    start_date_timestamp += pd.DateOffset(months=1)
 
 #########################################   BLACK-LITTERMAN  ###########################################
 
@@ -795,8 +804,6 @@ while start_date_timestamp < end_date_timestamp:
     # Append the results for the Black Litterman portfolio to the list
     efficient_frontier_list_bl.append(result_dict_bl_min_variance)
 
-    # Increment the start_date_timestamp
-    start_date_timestamp += pd.DateOffset(months=1)
 
     # Convert the list of dictionaries to a DataFrame for minimum variance
     monthly_min_variance = pd.DataFrame(efficient_frontier_list)
@@ -848,7 +855,8 @@ while start_date_timestamp < end_date_timestamp:
 
     # Update the efficient_frontier_dict with the current date and efficient frontier information
     efficient_frontier_dict[start_date_timestamp] = frontier_dict_for_date
-
+    # Increment the start_date_timestamp
+    start_date_timestamp += pd.DateOffset(months=1)
 
     
     
@@ -958,13 +966,9 @@ portfolio_returns_5 = pd.DataFrame(portfolio_returns_5_data)
 portfolio_returns_eq_w = pd.DataFrame(portfolio_returns_eq_w_data)
 
 
-
-# Retrieve the matrix of changes in the weights
-
-#If true, show the percentage change --> not well behaved since weights changes from previous month that were close to 0 explode
-relative = False
-
-# Create an empty DataFrame to store the combined data
+    
+    
+#---------------------- In notebook ---------------------------------------------------
 combined_df = pd.DataFrame()
 
 # Loop through each date in the dictionary
@@ -980,63 +984,60 @@ for date, data in efficient_frontier_dict.items():
 
 # Reset the index of the combined DataFrame
 combined_df.reset_index(drop=True, inplace=True)
+combined_df.index = combined_df["Date"]
+combined_df = combined_df.drop(["Date"], axis=1)
 
-# Create an empty DataFrame to store weights evolution
-weights_evolution_df = pd.DataFrame()
+weight_dict = combined_df['Weights']
 
-# Iterate through unique points
-for point in combined_df['Point'].unique():
-    # Filter the DataFrame for each point
-    point_df = combined_df[combined_df['Point'] == point]
+pf_index = ('1', '2', '3', '4', '5')
+month_year = weight_dict.index.strftime('%Y-%m').unique()
+year = weight_dict.index.strftime('%Y').unique()
 
-    # Iterate through each row of the filtered DataFrame
-    for index, row in point_df.iterrows():
-        # Access the 'Weights' column directly
-        weights_dict = row['Weights']
-        
-        # Create columns for each ticker in the weights dictionary
-        for ticker, weight in weights_dict.items():
-            # Create a new column for each ticker with the corresponding weight
-            point_df.at[index, ticker] = weight
+
+dt_frame = pd.DataFrame(index=month_year, columns=ticker_list)
+dict_pf = {'1': dt_frame.copy(), '2': dt_frame.copy(), '3': dt_frame.copy(), '4': dt_frame.copy(), '5': dt_frame.copy()}
+
+for i in month_year:
+    for tick in ticker_list:
+        dict_pf['1'][tick].loc[i] = (weight_dict.loc[weight_dict.index.strftime('%Y-%m') == i][0][tick])
+        dict_pf['2'][tick].loc[i] = float(weight_dict.loc[weight_dict.index.strftime('%Y-%m') == i][1][tick])
+        dict_pf['3'][tick].loc[i] = float(weight_dict.loc[weight_dict.index.strftime('%Y-%m') == i][2][tick])
+        dict_pf['4'][tick].loc[i] = float(weight_dict.loc[weight_dict.index.strftime('%Y-%m') == i][3][tick])
+        dict_pf['5'][tick].loc[i] = float(weight_dict.loc[weight_dict.index.strftime('%Y-%m') == i][4][tick])
+
+
+# Assuming df_weights is your DataFrame with assets weights
+# and that the index is a datetime index with monthly frequency
+
+df_yearly_turnover = pd.DataFrame(index= year,  columns=pf_index )
+df_yearly_exec_cost = pd.DataFrame(index= year,  columns=pf_index)
+bid_ask_spread=[0.02,0.02,0.03,0.09,0.04,0.02,0.01,0.02,0.05,0.01,0.05]
+
+last_prices_list=pd.Series(index=ticker_list)
+for tick in ticker_list:
+    last_prices_list[tick] = yf.download(tick)["Close"] .tail(1)[0]
     
-    # Drop unnecessary columns
-    point_df = point_df.drop(columns=['Weights', 'ESG Score'])
 
-    if relative:
-        # Calculate the month-to-month change for each ticker excluding the 'Point' column
-        change_df = point_df.set_index(['Date', 'Point']).pct_change().reset_index()
-    else:
-        # Calculate the absolute month-to-month change for each ticker excluding the 'Point' column
-        change_df = point_df.set_index(['Date', 'Point']).diff().reset_index()
-
-    # Concatenate the data for each point
-    weights_evolution_df = pd.concat([weights_evolution_df, change_df])
-
-# Reset the index of the weights evolution DataFrame
-weights_evolution_df.reset_index(drop=True, inplace=True)
-
-
-
-
-# Convert the 'Date' column to a datetime type for all portfolios
-for portfolio_returns, label in zip(
-        [portfolio_returns_1, portfolio_returns_2, portfolio_returns_3, portfolio_returns_4, portfolio_returns_5, portfolio_returns_mv,portfolio_returns_eq_w],
-        ['Portfolio 1', 'Portfolio 2', 'Portfolio 3', 'Portfolio 4', 'Portfolio 5', 'Minimum Variance', 'Equally Weighted']):
-    portfolio_returns['Date'] = pd.to_datetime(portfolio_returns['Date'])
-    portfolio_returns['Cumulative_Return'] = (1 + portfolio_returns['Portfolio_Return']).cumprod()
-    
-    
-    
-#---------------------- In notebook ---------------------------------------------------
-
+for col in df_yearly_turnover.columns:
+# Calculate absolute monthly weight changes
+    weight_changes = dict_pf[col].diff()
+    weight_changes.dropna(inplace=True)
+    weight_changes.index = pd.to_datetime(weight_changes.index)
+    for yr in year:
+        df_yearly_turnover[col].loc[yr] = np.sum(weight_changes.loc[yr]).abs().sum()
+        df_yearly_exec_cost[col].loc[yr] = (np.sum(bid_ask_spread * weight_changes.loc[yr].abs())*last_prices_list).sum()
+       
+'''
+# Assuming df_yearly_turnover and df_exec_cost are your DataFrames
+compute_avg_turnover_and_exec_cost(df_yearly_turnover, df_yearly_exec_cost, pf_index)
 '''
 
 
+
+
+
+'''
 efficient_frontier_dict
-
-
-
-
 
 # Plotting
 plt.figure(figsize=(12, 6))
@@ -1090,10 +1091,7 @@ plt.show()
 
 
 
-
 #------------------------------------------------------------------------------------------------
-
-
 
 print(np.mean(ETF_fees))
 print(portfolio_returns_1['Fees'].mean())
@@ -1104,13 +1102,25 @@ print(portfolio_returns_5['Fees'].mean())
 
 
 #------------------------------------------------------------------------------------------------
-
-
-# Retrieve the matrix of changes in the weights
-weights_evolution_df
-
-### Example for the 1st portfolio 
-
-weights_evolution_df[weights_evolution_df['Point'] == 1]
-
 '''
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
