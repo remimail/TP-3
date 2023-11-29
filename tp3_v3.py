@@ -1000,7 +1000,7 @@ def compute_avg_turnover_and_exec_cost(df_turnover, df_execution, columns):
         print(f'Average yearly turnover: {np.mean(df_turnover[i])*100} %')
         df_execution[i]= np.ma.masked_where(df_execution[i] == 0, df_execution[i])
         
-        print(f'Average execution cost estimation: {np.mean(df_execution[i])} $')
+        print(f'Yearly Rebalancing execution cost estimate: {np.mean(df_execution[i])} $ per dollar')
         print('', sep='\n')
 
 # Assuming df_weights is your DataFrame with assets weights
