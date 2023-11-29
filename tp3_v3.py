@@ -176,22 +176,7 @@ def plot_time_series_grid(dataframe, title='Benchmark Indexes Time Series', y_ax
     # Function to get the index of the first non-NaN value in each column
 def first_non_nan_index(column):
     return column.first_valid_index()
-
-
-def compute_avg_turnover_and_exec_cost(df_turnover, df_execution, columns):
-    for i in columns:
-        # Create a masked array where values equal to 0 are masked
-        df_turnover[i] = np.ma.masked_where(df_turnover[i] == 0, df_turnover[i])
         
-        print(f'Portfolio {i}')
-        print(f'Average yearly turnover: {np.mean(df_turnover[i])*100} %')
-        
-        # Assuming df_exec_cost is a column in your DataFrame
-        # Create a masked array for execution cost
-        df_execution[i]= np.ma.masked_where(df_execution[i] == 0, df_execution[i])
-        
-        print(f'Average execution cost estimation: {np.mean(df_execution[i])} $')
-        print('', sep='\n')
 
 # Code -------------------------------------------------------------------------------------
 
@@ -1006,12 +991,26 @@ for i in month_year:
         dict_pf['5'][tick].loc[i] = float(weight_dict.loc[weight_dict.index.strftime('%Y-%m') == i][4][tick])
 
 
+
+def compute_avg_turnover_and_exec_cost(df_turnover, df_execution, columns):
+    for i in columns:
+        df_turnover[i] = np.ma.masked_where(df_turnover[i] == 0, df_turnover[i])
+        
+        print(f'Portfolio {i}')
+        print(f'Average yearly turnover: {np.mean(df_turnover[i])*100} %')
+        df_execution[i]= np.ma.masked_where(df_execution[i] == 0, df_execution[i])
+        
+        print(f'Average execution cost estimation: {np.mean(df_execution[i])} $')
+        print('', sep='\n')
+
 # Assuming df_weights is your DataFrame with assets weights
 # and that the index is a datetime index with monthly frequency
 
 df_yearly_turnover = pd.DataFrame(index= year,  columns=pf_index )
 df_yearly_exec_cost = pd.DataFrame(index= year,  columns=pf_index)
-bid_ask_spread=[0.02,0.02,0.03,0.09,0.04,0.02,0.01,0.02,0.05,0.01,0.05]
+bid_ask_spread=[0.0002,0.0002,0.0003,0.0009,0.0004,0.0002,0.0001,0.0002,0.0005,0.0001,0.0005]
+bid_ask_spread = np.array(bid_ask_spread)
+
 
 last_prices_list=pd.Series(index=ticker_list)
 for tick in ticker_list:
@@ -1025,7 +1024,8 @@ for col in df_yearly_turnover.columns:
     weight_changes.index = pd.to_datetime(weight_changes.index)
     for yr in year:
         df_yearly_turnover[col].loc[yr] = np.sum(weight_changes.loc[yr]).abs().sum()
-        df_yearly_exec_cost[col].loc[yr] = (np.sum(bid_ask_spread * weight_changes.loc[yr].abs())*last_prices_list).sum()
+        df_yearly_exec_cost[col].loc[yr] = (np.sum(bid_ask_spread / 2 * np.abs(weight_changes.loc[yr]))).sum()
+        
        
 '''
 # Assuming df_yearly_turnover and df_exec_cost are your DataFrames
